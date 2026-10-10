@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bubble Sort Game</title>
+<style id="css">
+:root{--ac:#ffd24a;--ok:#3ddc84;--bad:#ff5a6a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0}
+body{background:#050b1a radial-gradient(ellipse at 50% 15%,#12305e,#050b1a 70%);color:#f4f7ff;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+[hidden]{display:none!important}
+#root{height:100%;display:flex;flex-direction:column}
+header{display:flex;gap:10px;align-items:center;padding:10px 14px 4px;flex-wrap:wrap}
+h1{font-size:clamp(18px,4.5vw,28px);margin:0;flex:1;color:var(--ac)}
+.hud{opacity:.85;font-size:14px}
+button{font:inherit;border:0;border-radius:999px;padding:9px 18px;background:#5b5bff;color:#fff;font-weight:700;cursor:pointer}
+button.g{background:#ffffff26}
+button:disabled{opacity:.5}
+#chips{display:flex;gap:6px;flex-wrap:wrap;padding:4px 14px;min-height:28px}
+.chip{background:var(--ok);color:#03361a;border-radius:999px;padding:3px 12px;font-weight:700;font-size:13px}
+#field{position:relative;flex:1;overflow:hidden;touch-action:none}
+.b{position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:50%;cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none;line-height:1.25;font-weight:600;font-size:12px;color:#eaf3ff;padding:6px;box-sizing:border-box;background:radial-gradient(circle at 30% 25%,#ffffff55,#8ec5ff22 55%,#ffffff11);border:2px solid #ffffff66;box-shadow:inset 0 0 18px #ffffff33,0 0 14px #4aa8ff44;transition:background .25s,border-color .25s}
+.b.drag{cursor:grabbing;z-index:9;box-shadow:0 0 28px #fff8}
+.b.ok{background:radial-gradient(circle at 30% 25%,#c9ffd9aa,#3ddc8455);border-color:var(--ok)}
+.b.bad{background:radial-gradient(circle,#ff5a6a99,#ff5a6a33);border-color:var(--bad)}
+.b.pop{animation:pop .6s forwards}
+@keyframes pop{to{transform:scale(1.5);opacity:0}}
+.ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000a;text-align:center;font-size:26px;font-weight:700;z-index:20}
+.ed{max-width:720px;margin:0 auto;padding:14px;overflow:auto;width:100%;box-sizing:border-box}
+.card{background:#ffffff14;border-radius:14px;padding:12px;margin:10px 0}
+input,textarea{width:100%;box-sizing:border-box;font:inherit;padding:8px 10px;border-radius:8px;border:1px solid #fff4;background:#0008;color:#fff}
+textarea{min-height:90px;resize:vertical;margin-top:8px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+</style></head>
+<body><div id="root"></div>
+<script id="cfg" type="application/json">{"title":"Sort the European cities","nC":5,"nI":5,"cats":[{"name":"Germany","items":["Berlin","Munich","Hamburg","Frankfurt","Cologne","Stuttgart","Düsseldorf","Dresden","Leipzig","Nuremberg"]},{"name":"Italy","items":["Rome","Milan","Venice","Florence","Naples","Turin","Bologna","Genoa","Verona","Pisa"]},{"name":"Spain","items":["Madrid","Barcelona","Seville","Valencia","Bilbao","Granada","Málaga","Zaragoza","Toledo","Salamanca"]},{"name":"United Kingdom","items":["London","Edinburgh","Manchester","Liverpool","Glasgow","Birmingham","Bristol","Cardiff","Leeds","Belfast"]},{"name":"France","items":["Paris","Lyon","Marseille","Nice","Bordeaux","Toulouse","Strasbourg","Lille","Nantes","Montpellier"]}]}</script>
+<script id="js">
+(()=>{
+const $=s=>document.querySelector(s),root=$('#root');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cfg=JSON.parse($('#cfg').textContent);
+let raf=0;
+const H=location.hash.slice(1),canEdit=!H;
+const enc=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_');
+const dec=t=>JSON.parse(decodeURIComponent(escape(atob(t.replace(/-/g,'+').replace(/_/g,'/')))));
+
+const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+const pick=c=>shuf(c.cats).slice(0,Math.max(2,c.nC||5)).map(k=>({name:k.name,items:shuf(k.items).slice(0,Math.max(2,c.nI||5))}));
+
+function play(c){
+  cancelAnimationFrame(raf);
+  const g={title:c.title,cats:pick(c)};
+  root.innerHTML=`<header><h1>${esc(g.title)}</h1><span class="hud" id="hud"></span><button class="g" id="edt" hidden>✏️ Edit game</button><div class="hud" style="width:100%">Drag bubbles that belong together onto each other. A wrong match bounces apart!</div></header><div id="chips"></div><div id="field"></div>`;
+  if(canEdit)$('#edt').hidden=false;
+  $('#edt').onclick=()=>edit(c);
+  const F=$('#field'),tot=g.cats.map(k=>k.items.length),total=g.cats.length;
+  let bs=[],t0=Date.now(),secs=0,miss=0,done=0,drag=null,ended=false;
+
+  function size(b){
+    b.r=Math.min(44+13*(b.items.length-1),105);
+    b.el.style.width=b.el.style.height=b.r*2+'px';
+    b.el.innerHTML=b.items.map(i=>esc(i.t)).join('<br>');
+  }
+  function mk(items){
+    const b={items,vx:(Math.random()-.5)*1.3,vy:(Math.random()-.5)*1.3,el:document.createElement('div')};
+    b.el.className='b';F.appendChild(b.el);size(b);
+    b.x=Math.random()*Math.max(1,F.clientWidth-b.r*2);
+    b.y=Math.random()*Math.max(1,F.clientHeight-b.r*2);
+    return b;
+  }
+  g.cats.forEach((k,ci)=>k.items.forEach(t=>bs.push(mk([{t,c:ci}]))));
+
+  function finish(o,ci){
+    o.el.classList.add('pop');bs=bs.filter(x=>x!==o);
+    setTimeout(()=>o.el.remove(),600);
+    const ch=document.createElement('span');ch.className='chip';ch.textContent='✓ '+g.cats[ci].name;
+    $('#chips').appendChild(ch);
+    if(++done===total){ended=true;setTimeout(win,700)}
+  }
+  function win(){
+    F.insertAdjacentHTML('beforeend',`<div class="ov">🎉 All sorted!<div style="font-size:18px;font-weight:500">${Math.floor(secs/60)}:${String(secs%60).padStart(2,'0')} · ${miss} mistake${miss===1?'':'s'}</div><button id="again">Play again</button></div>`);
+    $('#again').onclick=()=>play(c);
+  }
+  function drop(a){
+    const cx=a.x+a.r,cy=a.y+a.r;let o=null,best=0;
+    for(const b of bs){
+      if(b===a)continue;
+      const d=Math.hypot(b.x+b.r-cx,b.y+b.r-cy)-(a.r+b.r)*.8;
+      if(d<best){best=d;o=b}
+    }
+    if(!o)return;
+    const ca=a.items[0].c;
+    if(ca===o.items[0].c){
+      o.items=o.items.concat(a.items);bs=bs.filter(x=>x!==a);a.el.remove();
+      size(o);o.el.classList.add('ok');
+      if(o.items.length===tot[ca])finish(o,ca);
+    }else{
+      miss++;
+      const dx=a.x-o.x||1,dy=a.y-o.y||1,m=Math.hypot(dx,dy);
+      a.vx=dx/m*4;a.vy=dy/m*4;o.vx=-dx/m*4;o.vy=-dy/m*4;
+      [a,o].forEach(b=>b.el.classList.add('bad'));
+      setTimeout(()=>[a,o].forEach(b=>b.el.classList.remove('bad')),500);
+    }
+  }
+  F.onpointerdown=e=>{
+    const el=e.target.closest('.b');if(!el||ended)return;
+    const b=bs.find(x=>x.el===el);if(!b)return;
+    const r=F.getBoundingClientRect();
+    drag={b,ox:e.clientX-r.left-b.x,oy:e.clientY-r.top-b.y};
+    el.classList.add('drag');F.setPointerCapture(e.pointerId);
+  };
+  F.onpointermove=e=>{
+    if(!drag)return;const r=F.getBoundingClientRect();
+    drag.b.x=e.clientX-r.left-drag.ox;drag.b.y=e.clientY-r.top-drag.oy;
+  };
+  F.onpointerup=F.onpointercancel=()=>{
+    if(!drag)return;const b=drag.b;drag=null;b.el.classList.remove('drag');drop(b);
+  };
+  function tick(){
+    if(!F.isConnected)return;
+    const W=F.clientWidth,H=F.clientHeight;
+    for(const b of bs){
+      const d=2*b.r;
+      if(!drag||drag.b!==b){
+        b.x+=b.vx;b.y+=b.vy;
+        if(b.x<0||b.x>W-d)b.vx*=-1;
+        if(b.y<0||b.y>H-d)b.vy*=-1;
+        if(Math.hypot(b.vx,b.vy)>1.2){b.vx*=.97;b.vy*=.97}
+      }
+      b.x=Math.max(0,Math.min(W-d,b.x));b.y=Math.max(0,Math.min(H-d,b.y));
+      b.el.style.left=b.x+'px';b.el.style.top=b.y+'px';
+    }
+    if(!ended)secs=Math.floor((Date.now()-t0)/1000);
+    $('#hud').textContent=`⏱ ${Math.floor(secs/60)}:${String(secs%60).padStart(2,'0')} · ✖ ${miss} · ✓ ${done}/${total}`;
+    raf=requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function parseCSV(t){
+  t=t.replace(/^\uFEFF/,'');
+  const first=t.split(/\r?\n/)[0]||'';
+  const dl=[',',';','\t'].map(c=>[c,first.split(c).length]).sort((a,b)=>b[1]-a[1])[0][0];
+  const rows=[];let r=[],f='',q=false;
+  for(let i=0;i<t.length;i++){
+    const ch=t[i];
+    if(q){if(ch==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=ch}
+    else if(ch==='"')q=true;
+    else if(ch===dl){r.push(f);f=''}
+    else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&t[i+1]==='\n')i++;r.push(f);rows.push(r);r=[];f=''}
+    else f+=ch;
+  }
+  r.push(f);rows.push(r);
+  return rows.map(r=>r.map(x=>x.trim())).filter(r=>r.some(Boolean));
+}
+
+function edit(c){
+  cancelAnimationFrame(raf);
+  const d=JSON.parse(JSON.stringify(c));
+  const msg=t=>{$('#msg').textContent=t};
+  const sync=()=>{
+    d.title=$('#ti').value.trim()||'Bubble game';
+    d.nC=Math.max(2,parseInt($('#nc').value)||5);d.nI=Math.max(2,parseInt($('#ni').value)||5);
+    document.querySelectorAll('[data-n]').forEach(e=>d.cats[e.dataset.n].name=e.value.trim());
+    document.querySelectorAll('[data-i]').forEach(e=>d.cats[e.dataset.i].items=e.value.split('\n').map(s=>s.trim()).filter(Boolean));
+  };
+  const valid=()=>{
+    const cats=d.cats.filter(k=>k.name&&k.items.length);
+    if(cats.length<2||cats.some(k=>k.items.length<2)){msg('Need at least 2 categories, each with a name and 2+ items.');return null}
+    return{title:d.title,cats,nC:d.nC,nI:d.nI};
+  };
+  const draw=()=>{
+    root.innerHTML=`<div class="ed"><h1>Set up your game</h1><input id="ti" value="${esc(d.title)}" placeholder="Game title" style="margin-top:10px"><p class="hud">Each category is a group students build by dragging matching bubbles together. One item per line. Add more items than you need: every game randomly picks from the pool.</p><div class="row" style="margin-bottom:6px"><label class="hud">Categories per game <input id="nc" type="number" min="2" value="${d.nC||5}" style="width:70px"></label><label class="hud">Items per category <input id="ni" type="number" min="2" value="${d.nI||5}" style="width:70px"></label></div>${d.cats.map((k,i)=>`<div class="card"><div class="row"><input data-n="${i}" value="${esc(k.name)}" placeholder="Category name" style="flex:1"><button class="g" data-x="${i}">Remove</button></div><textarea data-i="${i}" placeholder="One item per line">${esc(k.items.join('\n'))}</textarea></div>`).join('')}<div class="card"><div class="row"><b>Import CSV</b><select id="cm" style="font:inherit;padding:7px 10px;border-radius:8px;background:#0008;color:#fff;border:1px solid #fff4"><option value="rows">One category per row</option><option value="cols">One category per column</option></select><input type="file" id="csv" accept=".csv,.tsv,.txt,text/csv" style="flex:1;min-width:180px"></div><p class="hud" style="margin:8px 0 0">Rows: <code>Germany,Berlin,Munich,…</code> &nbsp;·&nbsp; Columns: first row holds category names, items listed beneath. Replaces the categories below.</p></div><div class="row"><button class="g" id="add">+ Add category</button><button class="g" id="tst">▶ Test play</button><button id="pub">Get student link</button></div><p class="hud" id="msg"></p></div>`;
+    $('#add').onclick=()=>{sync();d.cats.push({name:'',items:[]});draw()};
+    root.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{sync();d.cats.splice(b.dataset.x,1);draw()});
+    $('#csv').onchange=async e=>{
+      const f=e.target.files[0];if(!f)return;sync();
+      let rows;try{rows=parseCSV(await f.text())}catch(x){msg('Could not read that file.');return}
+      const cats=$('#cm').value==='rows'
+        ?rows.map(r=>({name:r[0],items:r.slice(1).filter(Boolean)}))
+        :(rows[0]||[]).map((n,j)=>({name:n,items:rows.slice(1).map(r=>r[j]||'').filter(Boolean)}));
+      const ok=cats.filter(k=>k.name);
+      if(!ok.length){msg('No categories found in that file.');return}
+      d.cats=ok;draw();msg('Loaded '+ok.length+' categories from '+f.name+'. Check them below, then test or get the link.');
+    };
+    $('#tst').onclick=()=>{sync();const v=valid();if(v)play(v)};
+    $('#pub').onclick=publish;
+  };
+  function publish(){
+    sync();const v=valid();if(!v)return;
+    const u=location.href.split('#')[0]+'#'+enc(v);
+    $('#msg').innerHTML='Student link. Copy it and share it:<input id="lk" readonly value="'+esc(u)+'" style="margin-top:6px"><button id="cp" style="margin-top:8px">Copy link</button>';
+    $('#lk').onclick=e=>e.target.select();
+    $('#cp').onclick=()=>{$('#lk').select();(navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(()=>{$('#cp').textContent='Copied ✓'}).catch(()=>document.execCommand('copy'))};
+  }
+  draw();
+}
+
+let st=cfg;try{if(H)st=dec(H)}catch(e){}
+st.cats&&st.cats.length?play(st):edit(cfg);
+})();
+</script></body></html>
